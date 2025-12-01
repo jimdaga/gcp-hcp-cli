@@ -167,7 +167,8 @@ def create_infra(
                 cli_context.console.print("[green]✓ WIF infrastructure created successfully![/green]")
                 cli_context.console.print()
                 cli_context.console.print("[bold]Infrastructure Details:[/bold]")
-                cli_context.formatter.print_data(wif_config)
+                # Use JSON format for nested WIF config to show all details
+                cli_context.console.print_json(data=wif_config)
                 
                 cli_context.console.print()
                 cli_context.console.print("[bold]Saved Files:[/bold]")

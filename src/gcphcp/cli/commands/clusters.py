@@ -701,8 +701,9 @@ def create_cluster(
             cli_context.console.print(
                 f"Creating cluster '{cluster_name}' in project '{target_project}'..."
             )
-            cli_context.console.print("[dim]Debug - Sending cluster_data:[/dim]")
-            cli_context.console.print(f"[dim]{json.dumps(cluster_data, indent=2)}[/dim]")
+            if cli_context.verbosity >= 2:
+                cli_context.console.print("[dim]Debug - Sending cluster_data:[/dim]")
+                cli_context.console.print(f"[dim]{json.dumps(cluster_data, indent=2)}[/dim]")
 
         api_client = cli_context.get_api_client()
         
