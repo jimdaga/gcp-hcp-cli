@@ -27,7 +27,7 @@ def infra_group() -> None:
 @click.option(
     "--output-signing-key",
     type=click.Path(),
-    help="Path to save the generated signing key PEM file (default: <infra-id>-signing-key.pem)",
+    help="Path for signing key PEM (default: <infra-id>-signing-key.pem)",
 )
 @click.option(
     "--output-jwks",
@@ -37,7 +37,7 @@ def infra_group() -> None:
 @click.option(
     "--output-iam-config",
     type=click.Path(),
-    help="Path to save the IAM/WIF configuration JSON (default: <infra-id>-iam-config.json)",
+    help="Path for IAM config JSON (default: <infra-id>-iam-config.json)",
 )
 @click.pass_obj
 def create_infra(
@@ -106,29 +106,38 @@ def create_infra(
         if not oidc_jwks_file:
             if not cli_context.quiet:
                 cli_context.console.print()
-                cli_context.console.print("[bold cyan]Step 1: Generate Keypair[/bold cyan]")
+                cli_context.console.print(
+                    "[bold cyan]Step 1: Generate Keypair[/bold cyan]"
+                )
 
             try:
                 keypair_result = generate_cluster_keypair()
                 jwks_file_to_use = keypair_result.jwks_file_path
 
                 if not cli_context.quiet:
-                    cli_context.console.print("[green]✓[/green] Keypair generated successfully")
+                    cli_context.console.print(
+                        "[green]✓[/green] Keypair generated successfully"
+                    )
                     cli_context.console.print(f"[dim]  kid: {keypair_result.kid}[/dim]")
 
                 # Save signing key (use default filename if not specified)
                 signing_key_path = output_signing_key or f"{infra_id}-signing-key.pem"
-                with open(signing_key_path, 'w') as f:
+                with open(signing_key_path, "w") as f:
                     f.write(keypair_result.private_key_pem)
                 if not cli_context.quiet:
-                    cli_context.console.print(f"[green]✓[/green] Signing key saved to: {signing_key_path}")
+                    cli_context.console.print(
+                        f"[green]✓[/green] Signing key saved to: {signing_key_path}"
+                    )
 
                 # Save JWKS (use default filename if not specified)
                 jwks_path = output_jwks or f"{infra_id}-jwks.json"
                 import shutil
+
                 shutil.copy(keypair_result.jwks_file_path, jwks_path)
                 if not cli_context.quiet:
-                    cli_context.console.print(f"[green]✓[/green] JWKS saved to: {jwks_path}")
+                    cli_context.console.print(
+                        f"[green]✓[/green] JWKS saved to: {jwks_path}"
+                    )
 
             except Exception as e:
                 raise click.ClickException(f"Failed to generate keypair: {e}")
@@ -136,7 +145,9 @@ def create_infra(
         # Setup WIF Infrastructure
         if not cli_context.quiet:
             cli_context.console.print()
-            cli_context.console.print("[bold cyan]Step 2: Setup WIF Infrastructure[/bold cyan]")
+            cli_context.console.print(
+                "[bold cyan]Step 2: Setup WIF Infrastructure[/bold cyan]"
+            )
 
         try:
             # Run hypershift create iam gcp
@@ -157,23 +168,30 @@ def create_infra(
             # Save WIF config (use default filename if not specified)
             iam_config_path = output_iam_config or f"{infra_id}-iam-config.json"
             import json
-            with open(iam_config_path, 'w') as f:
+
+            with open(iam_config_path, "w") as f:
                 json.dump(wif_config, f, indent=2)
             if not cli_context.quiet:
-                cli_context.console.print(f"[green]✓[/green] IAM configuration saved to: {iam_config_path}")
+                cli_context.console.print(
+                    f"[green]✓[/green] IAM configuration saved to: {iam_config_path}"
+                )
 
             if not cli_context.quiet:
                 cli_context.console.print()
-                cli_context.console.print("[green]✓ WIF infrastructure created successfully![/green]")
+                cli_context.console.print(
+                    "[green]✓ WIF infrastructure created successfully![/green]"
+                )
                 cli_context.console.print()
                 cli_context.console.print("[bold]Infrastructure Details:[/bold]")
                 # Use JSON format for nested WIF config to show all details
                 cli_context.console.print_json(data=wif_config)
-                
+
                 cli_context.console.print()
                 cli_context.console.print("[bold]Saved Files:[/bold]")
                 if keypair_result:
-                    signing_key_path = output_signing_key or f"{infra_id}-signing-key.pem"
+                    signing_key_path = (
+                        output_signing_key or f"{infra_id}-signing-key.pem"
+                    )
                     jwks_path = output_jwks or f"{infra_id}-jwks.json"
                     cli_context.console.print(f"  • Signing key: {signing_key_path}")
                     cli_context.console.print(f"  • JWKS: {jwks_path}")
@@ -195,4 +213,5 @@ def create_infra(
     except Exception as e:
         cli_context.console.print(f"[red]Unexpected error: {e}[/red]")
         import sys
+
         sys.exit(1)
