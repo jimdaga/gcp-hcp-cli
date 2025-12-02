@@ -170,11 +170,3 @@ class Config:
         from .. import __version__
 
         return __version__
-
-    def get_hypershift_binary(self) -> Optional[str]:
-        """Get path to hypershift binary.
-
-        Returns:
-            Path to hypershift binary or None if not configured
-        """
-        return self.get("hypershift_binary")
