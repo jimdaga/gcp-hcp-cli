@@ -1,7 +1,11 @@
 """Cluster management commands for GCP HCP CLI."""
 
+import base64
+import json
+from dataclasses import dataclass
+from typing import Dict, Optional, Tuple, Union, TYPE_CHECKING
+
 import click
-from typing import Dict, Union, TYPE_CHECKING
 from rich.panel import Panel
 from rich.text import Text
 
@@ -9,6 +13,18 @@ from ...client.exceptions import APIError, ResourceNotFoundError
 
 if TYPE_CHECKING:
     from ..main import CLIContext
+
+
+@dataclass
+class WIFSetupResult:
+    """Result of WIF infrastructure setup (automatic or manual)."""
+
+    wif_spec: Dict
+    signing_key_base64: str
+    issuer_url: str
+    wif_config: Optional[Dict] = (
+        None  # Raw config from hypershift (automatic mode only)
+    )
 
 
 def resolve_cluster_identifier(api_client, identifier: str) -> str:
@@ -70,6 +86,231 @@ def resolve_cluster_identifier(api_client, identifier: str) -> str:
         raise click.ClickException(f"Failed to search clusters: {e}")
     except ResourceNotFoundError:
         raise click.ClickException(f"Cluster '{identifier}' not found.")
+
+
+# =============================================================================
+# WIF Setup Helper Functions
+# =============================================================================
+
+
+def _setup_wif_automatic(
+    cli_context: "CLIContext",
+    infra_id: str,
+    project_id: str,
+) -> WIFSetupResult:
+    """Setup WIF infrastructure automatically using hypershift CLI.
+
+    This mode:
+    1. Generates an RSA keypair for service account signing
+    2. Provisions WIF infrastructure via 'hypershift create iam gcp'
+    3. Returns the WIF configuration for cluster creation
+
+    Args:
+        cli_context: CLI context for console output and config
+        infra_id: Infrastructure ID for WIF resources
+        project_id: GCP project ID
+
+    Returns:
+        WIFSetupResult with all necessary WIF configuration
+
+    Raises:
+        click.ClickException: If keypair generation or IAM provisioning fails
+    """
+    from ...utils.hypershift import (
+        create_iam_gcp,
+        validate_wif_config,
+        wif_config_to_cluster_spec,
+        HypershiftError,
+    )
+    from ...utils.crypto import generate_cluster_keypair
+
+    keypair_result = None
+
+    try:
+        # Step 1: Generate keypair
+        if not cli_context.quiet:
+            cli_context.console.print()
+            cli_context.console.print("[bold cyan]Step 1: Generate Keypair[/bold cyan]")
+
+        keypair_result = generate_cluster_keypair()
+
+        if not cli_context.quiet:
+            cli_context.console.print("[green]✓[/green] Keypair generated successfully")
+            cli_context.console.print(f"[dim]  kid: {keypair_result.kid}[/dim]")
+
+        # Step 2: Setup WIF Infrastructure
+        if not cli_context.quiet:
+            cli_context.console.print()
+            cli_context.console.print(
+                "[bold cyan]Step 2: Setup WIF Infrastructure[/bold cyan]"
+            )
+
+        wif_config = create_iam_gcp(
+            infra_id=infra_id,
+            project_id=project_id,
+            oidc_jwks_file=keypair_result.jwks_file_path,
+            console=cli_context.console if not cli_context.quiet else None,
+            config=cli_context.config,
+        )
+
+        # Validate the output
+        if not validate_wif_config(wif_config):
+            raise click.ClickException(
+                "Invalid WIF configuration returned from hypershift"
+            )
+
+        # Convert to cluster spec format
+        wif_spec = wif_config_to_cluster_spec(wif_config)
+
+        return WIFSetupResult(
+            wif_spec=wif_spec,
+            signing_key_base64=keypair_result.private_key_pem_base64,
+            issuer_url=f"https://hypershift-{infra_id}-oidc",
+            wif_config=wif_config,
+        )
+
+    except HypershiftError as e:
+        raise click.ClickException(f"Failed to setup infrastructure: {e}")
+    except Exception as e:
+        raise click.ClickException(f"Failed to generate keypair: {e}")
+    finally:
+        # Clean up temporary JWKS file
+        if keypair_result:
+            keypair_result.cleanup()
+
+
+def _setup_wif_manual(
+    cli_context: "CLIContext",
+    iam_config_file: str,
+    signing_key_file: str,
+    fallback_infra_id: str,
+) -> Tuple[WIFSetupResult, str]:
+    """Setup WIF configuration from pre-generated files.
+
+    This mode uses output files from 'gcphcp infra create':
+    - IAM config JSON with pool/provider IDs and service accounts
+    - PEM-encoded RSA private key for service account signing
+
+    Args:
+        cli_context: CLI context for console output
+        iam_config_file: Path to IAM/WIF configuration JSON
+        signing_key_file: Path to PEM-encoded RSA private key
+        fallback_infra_id: Infra ID to use if not found in config
+
+    Returns:
+        Tuple of (WIFSetupResult, infra_id) - infra_id may come from config file
+
+    Raises:
+        click.ClickException: If files cannot be read or parsed
+    """
+    # Load IAM/WIF configuration from file
+    try:
+        with open(iam_config_file, "r") as f:
+            wif_config = json.load(f)
+
+        # Extract values from IAM config file
+        wif_project_number = wif_config.get("projectNumber")
+        wif_pool_id = wif_config.get("workloadIdentityPool", {}).get("poolId")
+        wif_provider_id = wif_config.get("workloadIdentityPool", {}).get("providerId")
+        wif_cp_sa_email = wif_config.get("serviceAccounts", {}).get("ctrlplane-op")
+        wif_nodepool_sa_email = wif_config.get("serviceAccounts", {}).get(
+            "nodepool-mgmt"
+        )
+
+        # Get infra ID from config or use fallback
+        infra_id = wif_config.get("infraId") or fallback_infra_id
+
+        if not cli_context.quiet:
+            cli_context.console.print()
+            cli_context.console.print(
+                "[bold cyan]Loaded IAM configuration from file[/bold cyan]"
+            )
+            cli_context.console.print(f"[dim]  File: {iam_config_file}[/dim]")
+            cli_context.console.print(f"[dim]  Infra ID: {infra_id}[/dim]")
+            cli_context.console.print(f"[dim]  Pool ID: {wif_pool_id}[/dim]")
+            cli_context.console.print(f"[dim]  Provider ID: {wif_provider_id}[/dim]")
+
+    except Exception as e:
+        raise click.ClickException(f"Failed to load IAM config file: {e}")
+
+    # Read and encode the signing key file
+    try:
+        with open(signing_key_file, "r") as f:
+            signing_key_pem = f.read()
+        signing_key_base64 = base64.b64encode(signing_key_pem.encode("utf-8")).decode(
+            "utf-8"
+        )
+    except Exception as e:
+        raise click.ClickException(f"Failed to read signing key file: {e}")
+
+    # Build WIF spec from IAM config
+    wif_spec = {
+        "projectNumber": wif_project_number,
+        "poolID": wif_pool_id,
+        "providerID": wif_provider_id,
+        "serviceAccountsRef": {
+            "controlPlaneEmail": wif_cp_sa_email,
+            "nodePoolEmail": wif_nodepool_sa_email,
+        },
+    }
+
+    wif_result = WIFSetupResult(
+        wif_spec=wif_spec,
+        signing_key_base64=signing_key_base64,
+        issuer_url=f"https://hypershift-{infra_id}-oidc",
+    )
+
+    return wif_result, infra_id
+
+
+def _build_cluster_spec(
+    cluster_name: str,
+    project_id: str,
+    region: str,
+    infra_id: str,
+    wif_result: WIFSetupResult,
+    description: Optional[str] = None,
+) -> Dict:
+    """Build the cluster data payload for API submission.
+
+    Args:
+        cluster_name: Name for the cluster
+        project_id: Target GCP project ID
+        region: GCP region for the cluster
+        infra_id: Infrastructure ID for the cluster
+        wif_result: WIF setup result with WIF configuration
+        description: Optional cluster description
+
+    Returns:
+        Complete cluster data dict ready for API submission
+    """
+    cluster_data = {
+        "name": cluster_name,
+        "target_project_id": project_id,
+        "spec": {
+            "infraID": infra_id,
+            "issuerURL": wif_result.issuer_url,
+            "serviceAccountSigningKey": wif_result.signing_key_base64,
+            "platform": {
+                "type": "GCP",
+                "gcp": {
+                    "projectID": project_id,
+                    "region": region,
+                    "workloadIdentity": wif_result.wif_spec,
+                },
+            },
+        },
+    }
+
+    if description:
+        cluster_data["description"] = description
+
+    return cluster_data
+
+
+# =============================================================================
+# CLI Commands
+# =============================================================================
 
 
 @click.group("clusters")
@@ -320,6 +561,30 @@ def cluster_status(
     help="Description for the cluster",
 )
 @click.option(
+    "--infra-id",
+    help="Infrastructure ID for infrastructure setup (defaults to cluster name)",
+)
+@click.option(
+    "--region",
+    default="us-central1",
+    help="GCP region for the cluster (default: us-central1)",
+)
+@click.option(
+    "--setup-infra",
+    is_flag=True,
+    help="Automatically setup WIF infrastructure (keypair + IAM)",
+)
+@click.option(
+    "--iam-config-file",
+    type=click.Path(exists=True),
+    help="Path to IAM/WIF config JSON from 'gcphcp infra create'",
+)
+@click.option(
+    "--signing-key-file",
+    type=click.Path(exists=True),
+    help="Path to PEM-encoded RSA private key for SA signing (manual mode)",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     help="Show what would be created without actually creating",
@@ -330,14 +595,37 @@ def create_cluster(
     cluster_name: str,
     project: str,
     description: str,
+    infra_id: str,
+    region: str,
+    setup_infra: bool,
+    iam_config_file: str,
+    signing_key_file: str,
     dry_run: bool,
 ) -> None:
-    """Create a new cluster.
+    """Create a new cluster with WIF configuration.
 
     CLUSTER_NAME: Name for the new cluster (must be DNS-compatible).
+
+    Two modes of operation:
+
+    1. Automatic mode (--setup-infra): CLI automatically generates keypair
+       and provisions required infrastructure (WIF, Network, etc.).
+
+    2. Manual mode: Use output files from 'gcphcp infra create' via
+       --iam-config-file and --signing-key-file options.
+
+    Examples:
+
+      # Automatic infrastructure setup
+      gcphcp clusters create my-cluster --project my-project --setup-infra
+
+      # Manual mode using infra create output files
+      gcphcp clusters create my-cluster --project my-project \\
+        --iam-config-file my-infra-iam-config.json \\
+        --signing-key-file my-infra-signing-key.pem
     """
     try:
-        # Use project from command line or config
+        # Resolve project ID
         target_project = project or cli_context.config.get("default_project")
         if not target_project:
             cli_context.console.print(
@@ -345,28 +633,96 @@ def create_cluster(
             )
             raise click.ClickException("Project ID required")
 
-        # Prepare cluster data
-        cluster_data = {
-            "name": cluster_name,
-            "target_project_id": target_project,
-        }
-        if description:
-            cluster_data["description"] = description
+        # Determine infra ID (defaults to cluster name)
+        effective_infra_id = infra_id or cluster_name
+
+        # =================================================================
+        # Mode Selection: Automatic vs Manual WIF Setup
+        # =================================================================
+
+        if setup_infra:
+            # Automatic mode: generate keypair and provision WIF infrastructure
+            wif_result = _setup_wif_automatic(
+                cli_context=cli_context,
+                infra_id=effective_infra_id,
+                project_id=target_project,
+            )
+            # In automatic mode, infra_id is the input we provided
+            resolved_infra_id = effective_infra_id
+
+            if not cli_context.quiet:
+                cli_context.console.print()
+                cli_context.console.print(
+                    "[bold cyan]Step 3: Creating Cluster[/bold cyan]"
+                )
+        else:
+            # Manual mode: use pre-generated files from 'gcphcp infra create'
+            if not iam_config_file:
+                cli_context.console.print(
+                    "[red]Error: Manual mode requires --iam-config-file[/red]"
+                )
+                raise click.ClickException(
+                    "Either use --setup-infra for automatic setup, "
+                    "or provide --iam-config-file for manual mode"
+                )
+
+            if not signing_key_file:
+                cli_context.console.print(
+                    "[red]Error: Manual mode requires --signing-key-file[/red]"
+                )
+                raise click.ClickException(
+                    "--signing-key-file is required for manual mode"
+                )
+
+            # Manual mode may extract infra_id from config file
+            wif_result, resolved_infra_id = _setup_wif_manual(
+                cli_context=cli_context,
+                iam_config_file=iam_config_file,
+                signing_key_file=signing_key_file,
+                fallback_infra_id=effective_infra_id,
+            )
+
+            if not cli_context.quiet:
+                cli_context.console.print()
+                cli_context.console.print(
+                    "[bold cyan]Creating Cluster with Manual Configuration[/bold cyan]"
+                )
+
+        # =================================================================
+        # Build Cluster Spec and Submit to API
+        # =================================================================
+
+        cluster_data = _build_cluster_spec(
+            cluster_name=cluster_name,
+            project_id=target_project,
+            region=region,
+            infra_id=resolved_infra_id,
+            wif_result=wif_result,
+            description=description,
+        )
 
         if dry_run:
-            # Show what would be created
             cli_context.console.print("[yellow]Dry run - would create:[/yellow]")
             cli_context.formatter.print_data(cluster_data)
+            if setup_infra and wif_result.wif_config:
+                cli_context.console.print(
+                    "\n[yellow]WIF Configuration (from hypershift):[/yellow]"
+                )
+                cli_context.formatter.print_data(wif_result.wif_config)
             return
 
-        # Confirm creation
         if not cli_context.quiet:
             cli_context.console.print(
                 f"Creating cluster '{cluster_name}' in project '{target_project}'..."
             )
+            if cli_context.verbosity >= 2:
+                cli_context.console.print("[dim]Debug - Sending cluster_data:[/dim]")
+                cli_context.console.print(
+                    f"[dim]{json.dumps(cluster_data, indent=2)}[/dim]"
+                )
 
-        # Make API request
         api_client = cli_context.get_api_client()
+
         cluster = api_client.post("/api/v1/clusters", json_data=cluster_data)
 
         if not cli_context.quiet:

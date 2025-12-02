@@ -97,6 +97,9 @@ gcphcp config init
 gcphcp config set api_endpoint https://api.example.com
 gcphcp config set default_project my-project-id
 
+# Set hypershift binary path (optional, if not in PATH)
+gcphcp config set hypershift_binary /path/to/hypershift
+
 # Get configuration values
 gcphcp config get api_endpoint
 gcphcp config list
@@ -104,6 +107,14 @@ gcphcp config list
 # Show configuration file location
 gcphcp config path
 ```
+
+**Configuration Options:**
+- `api_endpoint` - Backend API URL (default: https://api.gcphcp.example.com)
+- `default_project` - Default GCP project ID
+- `hypershift_binary` - Path to hypershift CLI (default: searches PATH)
+
+**Environment Variables:**
+- `HYPERSHIFT_BINARY` - Override hypershift binary path
 
 ### Cluster Management
 
@@ -116,6 +127,9 @@ gcphcp clusters list --status Ready --limit 20
 
 # Create a new cluster
 gcphcp clusters create my-cluster --project my-project
+
+# Create a cluster with automatic infrastructure setup (including WIF)
+gcphcp clusters create my-cluster --project my-project --setup-infra
 
 # Describe a cluster
 gcphcp clusters describe abc123def456
