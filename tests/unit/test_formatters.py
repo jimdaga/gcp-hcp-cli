@@ -2,7 +2,6 @@
 
 import json
 from io import StringIO
-import pytest
 
 from gcphcp.utils.formatters import OutputFormatter
 
@@ -22,7 +21,10 @@ class TestOutputFormatter:
             "cluster_name": "test-cluster-name",
             "status": {
                 "phase": "Progressing",
-                "message": "Controllers are provisioning resources (19 minutes remaining) (1\ncontrollers working)",
+                "message": (
+                    "Controllers are provisioning resources "
+                    "(19 minutes remaining) (1\ncontrollers working)"
+                ),
                 "conditions": [
                     {
                         "type": "Available",
@@ -47,7 +49,9 @@ class TestOutputFormatter:
 
         # Verify the output is valid JSON
         parsed = json.loads(json_output)
-        assert parsed["status"]["message"] == test_data["status"]["message"]
+        expected_msg = test_data["status"]["message"]  # type: ignore[index]
+        actual_msg = parsed["status"]["message"]
+        assert actual_msg == expected_msg
 
         # Verify newlines are properly escaped in raw JSON string
         # The raw JSON should contain \\n (escaped) not literal newlines
@@ -70,7 +74,7 @@ class TestOutputFormatter:
     def test_json_output_escapes_control_characters(self):
         """Test that JSON output escapes various control characters."""
         test_data = {
-            "message": "Line1\nLine2\rLine3\tTabbed\x00Null\x1FControl",
+            "message": "Line1\nLine2\rLine3\tTabbed\x00Null\x1fControl",
         }
 
         output_buffer = StringIO()
