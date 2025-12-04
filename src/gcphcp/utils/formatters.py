@@ -541,8 +541,11 @@ class OutputFormatter:
     def _print_json(self, data: Any) -> None:
         """Print data as JSON."""
         try:
-            json_str = json.dumps(data, indent=2, default=str)
-            self.console.print(json_str)
+            json_str = json.dumps(data, indent=2, default=str, ensure_ascii=False)
+            # Use file parameter to write directly to stdout to avoid Rich formatting
+            # that might interfere with JSON output
+            self.console.file.write(json_str + "\n")
+            self.console.file.flush()
         except Exception as e:
             logger.error(f"Failed to format as JSON: {e}")
             self.console.print(str(data))

@@ -818,9 +818,10 @@ def create_cluster(
             )
             if cli_context.verbosity >= 2:
                 cli_context.console.print("[dim]Debug - Sending cluster_data:[/dim]")
-                cli_context.console.print(
-                    f"[dim]{json.dumps(cluster_data, indent=2)}[/dim]"
-                )
+                # Use direct file write to avoid Rich formatting issues with JSON
+                debug_json = json.dumps(cluster_data, indent=2, ensure_ascii=False)
+                cli_context.console.file.write(f"{debug_json}\n")
+                cli_context.console.file.flush()
 
         api_client = cli_context.get_api_client()
 
