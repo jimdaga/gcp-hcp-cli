@@ -192,6 +192,20 @@ class OutputFormatter:
         table.add_row("Project", cluster_data.get("target_project_id", "Unknown"))
         table.add_row("Created By", cluster_data.get("created_by", "Unknown"))
 
+        # Network configuration (from spec.platform.gcp)
+        spec = cluster_data.get("spec", {})
+        platform = spec.get("platform", {})
+        gcp_config = platform.get("gcp", {})
+        if gcp_config:
+            table.add_row("", "")  # Separator
+            table.add_row("[bold]Network Configuration[/bold]", "")
+            if gcp_config.get("network"):
+                table.add_row("  Network", gcp_config["network"])
+            if gcp_config.get("subnet"):
+                table.add_row("  Subnet", gcp_config["subnet"])
+            endpoint_access = gcp_config.get("endpointAccess", "Private")
+            table.add_row("  Endpoint Access", endpoint_access)
+
         status = cluster_data.get("status", {})
         if status:
             table.add_row("", "")  # Separator

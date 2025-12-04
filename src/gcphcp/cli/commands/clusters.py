@@ -270,6 +270,9 @@ def _build_cluster_spec(
     infra_id: str,
     wif_result: WIFSetupResult,
     description: Optional[str] = None,
+    network: Optional[str] = None,
+    subnet: Optional[str] = None,
+    endpoint_access: str = "Private",
 ) -> Dict:
     """Build the cluster data payload for API submission.
 
@@ -281,9 +284,27 @@ def _build_cluster_spec(
         wif_result: WIF setup result with WIF configuration
         description: Optional cluster description
 
+        network: VPC network name
+        subnet: Subnet name
+        endpoint_access: API server endpoint access mode (Private or PublicAndPrivate)
+
     Returns:
         Complete cluster data dict ready for API submission
     """
+    gcp_spec = {
+        "projectID": project_id,
+        "region": region,
+        "workloadIdentity": wif_result.wif_spec,
+    }
+
+    # Add network configuration if provided
+    if network:
+        gcp_spec["network"] = network
+    if subnet:
+        gcp_spec["subnet"] = subnet
+    if endpoint_access:
+        gcp_spec["endpointAccess"] = endpoint_access
+
     cluster_data = {
         "name": cluster_name,
         "target_project_id": project_id,
@@ -293,11 +314,7 @@ def _build_cluster_spec(
             "serviceAccountSigningKey": wif_result.signing_key_base64,
             "platform": {
                 "type": "GCP",
-                "gcp": {
-                    "projectID": project_id,
-                    "region": region,
-                    "workloadIdentity": wif_result.wif_spec,
-                },
+                "gcp": gcp_spec,
             },
         },
     }
@@ -585,6 +602,25 @@ def cluster_status(
     help="Path to PEM-encoded RSA private key for SA signing (manual mode)",
 )
 @click.option(
+    "--infra-config-file",
+    type=click.Path(exists=True),
+    help="Path to infra config JSON from 'hypershift create infra'",
+)
+@click.option(
+    "--network",
+    help="VPC network name (required if --infra-config-file not provided)",
+)
+@click.option(
+    "--subnet",
+    help="Subnet name (required if --infra-config-file not provided)",
+)
+@click.option(
+    "--endpoint-access",
+    type=click.Choice(["Private", "PublicAndPrivate"], case_sensitive=True),
+    default="Private",
+    help="API server endpoint access mode (default: Private)",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     help="Show what would be created without actually creating",
@@ -600,6 +636,10 @@ def create_cluster(
     setup_infra: bool,
     iam_config_file: str,
     signing_key_file: str,
+    infra_config_file: str,
+    network: str,
+    subnet: str,
+    endpoint_access: str,
     dry_run: bool,
 ) -> None:
     """Create a new cluster with WIF configuration.
@@ -616,11 +656,17 @@ def create_cluster(
 
     Examples:
 
-      # Automatic infrastructure setup
-      gcphcp clusters create my-cluster --project my-project --setup-infra
+      # Using explicit network/subnet flags
+      gcphcp clusters create my-cluster --project my-project --setup-infra \\
+        --network my-vpc --subnet my-subnet
 
-      # Manual mode using infra create output files
+      # Using infra config file from 'hypershift create infra'
+      gcphcp clusters create my-cluster --project my-project --setup-infra \\
+        --infra-config-file my-infra-config.json
+
+      # Manual mode with IAM config and signing key
       gcphcp clusters create my-cluster --project my-project \\
+        --infra-config-file my-infra-config.json \\
         --iam-config-file my-infra-iam-config.json \\
         --signing-key-file my-infra-signing-key.pem
     """
@@ -635,6 +681,58 @@ def create_cluster(
 
         # Determine infra ID (defaults to cluster name)
         effective_infra_id = infra_id or cluster_name
+
+        # =================================================================
+        # Network Configuration: from flags or infra config file
+        # =================================================================
+
+        effective_network = network
+        effective_subnet = subnet
+
+        if infra_config_file:
+            # Load network/subnet from infra config file
+            try:
+                with open(infra_config_file, "r") as f:
+                    infra_config = json.load(f)
+
+                # Extract network and subnet from infra config
+                # The hypershift create infra output uses networkName and subnetName
+                file_network = infra_config.get("networkName")
+                file_subnet = infra_config.get("subnetName")
+
+                # Use file values if flags not provided
+                if not effective_network and file_network:
+                    effective_network = file_network
+                if not effective_subnet and file_subnet:
+                    effective_subnet = file_subnet
+
+                if not cli_context.quiet:
+                    cli_context.console.print()
+                    cli_context.console.print(
+                        "[bold cyan]Loaded infra configuration from file[/bold cyan]"
+                    )
+                    cli_context.console.print(f"[dim]  File: {infra_config_file}[/dim]")
+                    if file_network:
+                        cli_context.console.print(
+                            f"[dim]  Network: {file_network}[/dim]"
+                        )
+                    if file_subnet:
+                        cli_context.console.print(f"[dim]  Subnet: {file_subnet}[/dim]")
+
+            except Exception as e:
+                raise click.ClickException(f"Failed to load infra config file: {e}")
+
+        # Validate network and subnet are provided
+        if not effective_network or not effective_subnet:
+            missing = []
+            if not effective_network:
+                missing.append("--network")
+            if not effective_subnet:
+                missing.append("--subnet")
+            raise click.ClickException(
+                f"Missing required options: {', '.join(missing)}. "
+                "Provide via flags or use --infra-config-file."
+            )
 
         # =================================================================
         # Mode Selection: Automatic vs Manual WIF Setup
@@ -699,6 +797,9 @@ def create_cluster(
             infra_id=resolved_infra_id,
             wif_result=wif_result,
             description=description,
+            network=effective_network,
+            subnet=effective_subnet,
+            endpoint_access=endpoint_access,
         )
 
         if dry_run:
