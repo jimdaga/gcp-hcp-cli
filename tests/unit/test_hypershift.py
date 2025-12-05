@@ -8,8 +8,8 @@ from gcphcp.utils.hypershift import (
     HypershiftError,
     get_hypershift_binary,
     check_hypershift_installed,
-    validate_wif_config,
-    wif_config_to_cluster_spec,
+    validate_iam_config,
+    iam_config_to_wif_spec,
 )
 
 
@@ -86,9 +86,9 @@ class TestCheckHypershiftInstalled:
 
 
 class TestValidateWifConfig:
-    """Tests for validate_wif_config function."""
+    """Tests for validate_iam_config function."""
 
-    def test_validate_wif_config_valid(self):
+    def test_validate_iam_config_valid(self):
         """When WIF config has all required fields it should return True."""
         valid_config = {
             "projectId": "my-project",
@@ -104,9 +104,9 @@ class TestValidateWifConfig:
             },
         }
 
-        assert validate_wif_config(valid_config) is True
+        assert validate_iam_config(valid_config) is True
 
-    def test_validate_wif_config_missing_project_id(self):
+    def test_validate_iam_config_missing_project_id(self):
         """When WIF config is missing projectId it should return False."""
         invalid_config = {
             "projectNumber": "123456789",
@@ -121,9 +121,9 @@ class TestValidateWifConfig:
             },
         }
 
-        assert validate_wif_config(invalid_config) is False
+        assert validate_iam_config(invalid_config) is False
 
-    def test_validate_wif_config_missing_pool_id(self):
+    def test_validate_iam_config_missing_pool_id(self):
         """When WIF config is missing poolId it should return False."""
         invalid_config = {
             "projectId": "my-project",
@@ -138,9 +138,9 @@ class TestValidateWifConfig:
             },
         }
 
-        assert validate_wif_config(invalid_config) is False
+        assert validate_iam_config(invalid_config) is False
 
-    def test_validate_wif_config_missing_service_account(self):
+    def test_validate_iam_config_missing_service_account(self):
         """When WIF config is missing service account it should return False."""
         invalid_config = {
             "projectId": "my-project",
@@ -156,17 +156,17 @@ class TestValidateWifConfig:
             },
         }
 
-        assert validate_wif_config(invalid_config) is False
+        assert validate_iam_config(invalid_config) is False
 
-    def test_validate_wif_config_empty(self):
+    def test_validate_iam_config_empty(self):
         """When WIF config is empty it should return False."""
-        assert validate_wif_config({}) is False
+        assert validate_iam_config({}) is False
 
 
 class TestWifConfigToClusterSpec:
-    """Tests for wif_config_to_cluster_spec function."""
+    """Tests for iam_config_to_wif_spec function."""
 
-    def test_wif_config_to_cluster_spec_conversion(self):
+    def test_iam_config_to_wif_spec_conversion(self):
         """When converting WIF config it should produce correct cluster spec."""
         wif_config = {
             "projectId": "my-project",
@@ -182,7 +182,7 @@ class TestWifConfigToClusterSpec:
             },
         }
 
-        result = wif_config_to_cluster_spec(wif_config)
+        result = iam_config_to_wif_spec(wif_config)
 
         assert result["projectNumber"] == "123456789"
         assert result["poolID"] == "my-pool"
@@ -191,9 +191,9 @@ class TestWifConfigToClusterSpec:
         assert ctrl_email == "ctrlplane@example.com"
         assert result["serviceAccountsRef"]["nodePoolEmail"] == "nodepool@example.com"
 
-    def test_wif_config_to_cluster_spec_empty_config(self):
+    def test_iam_config_to_wif_spec_empty_config(self):
         """When converting empty config it should return None values."""
-        result = wif_config_to_cluster_spec({})
+        result = iam_config_to_wif_spec({})
 
         assert result["projectNumber"] is None
         assert result["poolID"] is None

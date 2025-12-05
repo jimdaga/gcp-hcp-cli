@@ -63,13 +63,13 @@ gcphcp auth login
 gcphcp clusters list
 ```
 
-### 4. Create a Cluster
-
-```bash
-gcphcp clusters create my-cluster --project my-gcp-project
-```
-
 ## Usage
+
+> **Tip:** Use `--help` on any command to see all available options and flags:
+> ```bash
+> gcphcp --help
+> gcphcp clusters --help
+> ```
 
 ### Authentication
 
@@ -118,6 +118,8 @@ gcphcp config path
 
 ### Cluster Management
 
+
+
 ```bash
 # List all clusters
 gcphcp clusters list
@@ -125,21 +127,40 @@ gcphcp clusters list
 # List clusters with filtering
 gcphcp clusters list --status Ready --limit 20
 
-# Create a new cluster
-gcphcp clusters create my-cluster --project my-project
-
-# Create a cluster with automatic infrastructure setup (including WIF)
-gcphcp clusters create my-cluster --project my-project --setup-infra
-
-# Describe a cluster
-gcphcp clusters describe abc123def456
-
-# Get detailed cluster status
-gcphcp clusters status abc123def456
+# Get detailed cluster status (with watch mode)
+gcphcp clusters status my-cluster
+gcphcp clusters status my-cluster --watch
 
 # Delete a cluster
-gcphcp clusters delete abc123def456
+gcphcp clusters delete my-cluster
 ```
+
+#### Creating Clusters
+
+**Option 1: Automatic Infrastructure Setup (Recommended)**
+
+The simplest way to create a cluster - automatically provisions all required infrastructure:
+
+```bash
+gcphcp clusters create my-cluster --project my-project --setup-infra --region us-central1
+```
+
+**Option 2: Pre-Provisioned Infrastructure**
+
+For more control, provision infrastructure separately then create the cluster:
+
+```bash
+# Step 1: Create infrastructure (generates config files)
+gcphcp infra create my-infra --project my-project --region us-central1
+
+# Step 2: Create cluster using the generated config files
+gcphcp clusters create my-cluster \
+  --iam-config-file my-infra-iam-config.json \
+  --signing-key-file my-infra-signing-key.pem \
+  --infra-config-file my-infra-infra-config.json
+```
+
+> **Note:** Infrastructure IDs must be **15 characters or less**.
 
 ### NodePool Management
 
