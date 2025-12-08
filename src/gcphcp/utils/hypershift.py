@@ -351,3 +351,161 @@ def validate_infra_config(infra_config: Dict[str, Any]) -> bool:
             return False
 
     return True
+
+
+# =============================================================================
+# Destroy Functions
+# =============================================================================
+
+
+def destroy_iam_gcp(
+    infra_id: str,
+    project_id: str,
+    console: Optional[Console] = None,
+    config=None,
+) -> bool:
+    """Run hypershift destroy iam gcp command to remove WIF infrastructure.
+
+    Args:
+        infra_id: Infrastructure ID for the cluster
+        project_id: GCP project ID
+        console: Rich console for output (optional)
+        config: Optional Config object to get hypershift binary path
+
+    Returns:
+        True if destruction was successful
+
+    Raises:
+        HypershiftError: If hypershift command fails
+    """
+    if console:
+        console.print("[cyan]Running hypershift destroy iam gcp...[/cyan]")
+        console.print(f"  Infrastructure ID: {infra_id}")
+        console.print(f"  Project ID: {project_id}")
+
+    # Get hypershift binary path
+    hypershift_bin = get_hypershift_binary(config)
+    if not hypershift_bin:
+        raise HypershiftError(
+            "hypershift CLI not found. Please install it or configure the path:\n"
+            "  1. Install: https://hypershift-docs.netlify.app/getting-started/\n"
+            "  2. Or set: gcphcp config set hypershift_binary /path/to/hypershift\n"
+            "  3. Or set: export HYPERSHIFT_BINARY=/path/to/hypershift"
+        )
+
+    # Build the command
+    cmd = [
+        hypershift_bin,
+        "destroy",
+        "iam",
+        "gcp",
+        "--infra-id",
+        infra_id,
+        "--project-id",
+        project_id,
+    ]
+
+    if console:
+        console.print(f"[dim]Command: {' '.join(cmd)}[/dim]")
+
+    try:
+        # Run the command
+        subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=300,  # 5 minute timeout
+        )
+
+        return True
+
+    except subprocess.TimeoutExpired:
+        raise HypershiftError("hypershift destroy iam gcp timed out after 5 minutes")
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.strip() if e.stderr else None
+        stdout = e.stdout.strip() if e.stdout else None
+        error_msg = stderr or stdout or "Unknown error"
+        raise HypershiftError(f"IAM destruction failed: {error_msg}")
+    except Exception as e:
+        raise HypershiftError(f"IAM destruction failed: {e}")
+
+
+def destroy_infra_gcp(
+    infra_id: str,
+    project_id: str,
+    region: str,
+    console: Optional[Console] = None,
+    config=None,
+) -> bool:
+    """Run hypershift destroy infra gcp command to remove network infrastructure.
+
+    Args:
+        infra_id: Infrastructure ID for the cluster
+        project_id: GCP project ID
+        region: GCP region where network resources are located
+        console: Rich console for output (optional)
+        config: Optional Config object to get hypershift binary path
+
+    Returns:
+        True if destruction was successful
+
+    Raises:
+        HypershiftError: If hypershift command fails
+    """
+    if console:
+        console.print("[cyan]Running hypershift destroy infra gcp...[/cyan]")
+        console.print(f"  Infrastructure ID: {infra_id}")
+        console.print(f"  Project ID: {project_id}")
+        console.print(f"  Region: {region}")
+
+    # Get hypershift binary path
+    hypershift_bin = get_hypershift_binary(config)
+    if not hypershift_bin:
+        raise HypershiftError(
+            "hypershift CLI not found. Please install it or configure the path:\n"
+            "  1. Install: https://hypershift-docs.netlify.app/getting-started/\n"
+            "  2. Or set: gcphcp config set hypershift_binary /path/to/hypershift\n"
+            "  3. Or set: export HYPERSHIFT_BINARY=/path/to/hypershift"
+        )
+
+    # Build the command
+    cmd = [
+        hypershift_bin,
+        "destroy",
+        "infra",
+        "gcp",
+        "--infra-id",
+        infra_id,
+        "--project-id",
+        project_id,
+        "--region",
+        region,
+    ]
+
+    if console:
+        console.print(f"[dim]Command: {' '.join(cmd)}[/dim]")
+
+    try:
+        # Run the command
+        subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=300,  # 5 minute timeout
+        )
+
+        return True
+
+    except subprocess.TimeoutExpired:
+        raise HypershiftError("hypershift destroy infra gcp timed out after 5 minutes")
+    except subprocess.CalledProcessError as e:
+        error_msg = f"hypershift destroy infra gcp failed with exit code {e.returncode}"
+        if e.stderr:
+            error_msg += f"\nError: {e.stderr}"
+        if e.stdout:
+            error_msg += f"\nOutput: {e.stdout}"
+        raise HypershiftError(error_msg)
+    except Exception as e:
+        raise HypershiftError(f"Unexpected error running hypershift: {e}")

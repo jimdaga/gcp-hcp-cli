@@ -10,6 +10,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from ...client.exceptions import APIError, ResourceNotFoundError
+from ...constants import DEFAULT_REGION
 
 if TYPE_CHECKING:
     from ..main import CLIContext
@@ -1058,8 +1059,8 @@ def cluster_status(
 )
 @click.option(
     "--region",
-    default="us-central1",
-    help="GCP region for the cluster (default: us-central1)",
+    default=DEFAULT_REGION,
+    help=f"GCP region for the cluster (default: {DEFAULT_REGION})",
 )
 @click.option(
     "--setup-infra",

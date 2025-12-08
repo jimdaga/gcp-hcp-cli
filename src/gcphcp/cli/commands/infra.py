@@ -3,6 +3,8 @@
 import click
 from typing import TYPE_CHECKING
 
+from ...constants import DEFAULT_REGION
+
 if TYPE_CHECKING:
     from ..main import CLIContext
 
@@ -21,8 +23,8 @@ def infra_group() -> None:
 )
 @click.option(
     "--region",
-    default="us-central1",
-    help="GCP region for network resources (default: us-central1)",
+    default=DEFAULT_REGION,
+    help=f"GCP region for network resources (default: {DEFAULT_REGION})",
 )
 @click.option(
     "--vpc-cidr",
@@ -282,6 +284,172 @@ def create_infra(
         # Clean up temporary JWKS file
         if keypair_result:
             keypair_result.cleanup()
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        cli_context.console.print(f"[red]Unexpected error: {e}[/red]")
+        import sys
+
+        sys.exit(1)
+
+
+@infra_group.command("destroy")
+@click.argument("infra_id")
+@click.option(
+    "--project",
+    help="Target project ID (overrides default)",
+)
+@click.option(
+    "--region",
+    default=DEFAULT_REGION,
+    help=f"GCP region where network resources are located (default: {DEFAULT_REGION})",
+)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    help="Skip confirmation prompt",
+)
+@click.pass_obj
+def destroy_infra(
+    cli_context: "CLIContext",
+    infra_id: str,
+    project: str,
+    region: str,
+    yes: bool,
+) -> None:
+    """Destroy infrastructure created for hosted cluster deployment.
+
+    INFRA_ID: Infrastructure identifier used when creating the infrastructure.
+
+    This command removes infrastructure components including:
+    - Workload Identity Federation (WIF) pool and provider
+    - Service accounts for control plane and node pool management
+    - Network infrastructure (VPC, subnet, router, NAT)
+
+    WARNING: This action is irreversible. All resources with the specified
+    infra-id will be permanently deleted.
+
+    Examples:
+
+      # Destroy infrastructure (with confirmation prompt)
+      gcphcp infra destroy my-infra --project my-project --region us-central1
+
+      # Destroy infrastructure without confirmation
+      gcphcp infra destroy my-infra --project my-project --region us-central1 --yes
+    """
+    try:
+        from ...utils.hypershift import (
+            destroy_iam_gcp,
+            destroy_infra_gcp,
+            HypershiftError,
+        )
+
+        # Use project from command line or config
+        target_project = project or cli_context.config.get("default_project")
+        if not target_project:
+            cli_context.console.print(
+                "[red]Project ID required. Use --project or set default_project.[/red]"
+            )
+            raise click.ClickException("Project ID required")
+
+        # Confirmation prompt unless --yes is specified
+        if not yes:
+            cli_context.console.print()
+            cli_context.console.print(
+                "[bold yellow]⚠ WARNING: You are about to destroy "
+                "infrastructure![/bold yellow]"
+            )
+            cli_context.console.print()
+            cli_context.console.print(f"  Infrastructure ID: [cyan]{infra_id}[/cyan]")
+            cli_context.console.print(f"  Project ID: [cyan]{target_project}[/cyan]")
+            cli_context.console.print(f"  Region: [cyan]{region}[/cyan]")
+            cli_context.console.print()
+            cli_context.console.print("This will permanently delete:")
+            cli_context.console.print("  • Workload Identity Pool and Provider")
+            cli_context.console.print(
+                "  • Service Accounts (control plane and node pool)"
+            )
+            cli_context.console.print("  • VPC Network, Subnet, Router, and NAT")
+            cli_context.console.print()
+
+            if not click.confirm("Do you want to continue?"):
+                cli_context.console.print("[yellow]Aborted.[/yellow]")
+                return
+
+        # Step 1: Destroy Network Infrastructure
+        if not cli_context.quiet:
+            cli_context.console.print()
+            cli_context.console.print(
+                "[bold cyan]Step 1: Destroy Network Infrastructure[/bold cyan]"
+            )
+
+        network_destroyed = False
+        try:
+            destroy_infra_gcp(
+                infra_id=infra_id,
+                project_id=target_project,
+                region=region,
+                console=cli_context.console if not cli_context.quiet else None,
+                config=cli_context.config,
+            )
+            network_destroyed = True
+            if not cli_context.quiet:
+                cli_context.console.print(
+                    "[green]✓[/green] Network infrastructure destroyed"
+                )
+        except HypershiftError as e:
+            cli_context.console.print(
+                f"[yellow]Warning: Failed to destroy network "
+                f"infrastructure: {e}[/yellow]"
+            )
+            cli_context.console.print(
+                "[yellow]Continuing with IAM destruction...[/yellow]"
+            )
+
+        # Step 2: Destroy IAM Infrastructure
+        iam_destroyed = False
+        if not cli_context.quiet:
+            cli_context.console.print()
+            cli_context.console.print(
+                "[bold cyan]Step 2: Destroy IAM Infrastructure[/bold cyan]"
+            )
+
+        try:
+            destroy_iam_gcp(
+                infra_id=infra_id,
+                project_id=target_project,
+                console=cli_context.console if not cli_context.quiet else None,
+                config=cli_context.config,
+            )
+            iam_destroyed = True
+            if not cli_context.quiet:
+                cli_context.console.print(
+                    "[green]✓[/green] IAM infrastructure destroyed"
+                )
+        except HypershiftError as e:
+            cli_context.console.print(f"[yellow]Warning: {e}[/yellow]")
+
+        # Print summary
+        if not cli_context.quiet:
+            cli_context.console.print()
+            cli_context.console.print("[bold]Summary:[/bold]")
+            cli_context.console.print(f"  Infrastructure ID: {infra_id}")
+            cli_context.console.print(f"  Project: {target_project}")
+            cli_context.console.print(f"  Region: {region}")
+            network_status = (
+                "[green]destroyed[/green]"
+                if network_destroyed
+                else "[yellow]failed[/yellow]"
+            )
+            cli_context.console.print(f"  Network: {network_status}")
+            iam_status = (
+                "[green]destroyed[/green]"
+                if iam_destroyed
+                else "[yellow]skipped[/yellow]"
+            )
+            cli_context.console.print(f"  IAM: {iam_status}")
 
     except click.ClickException:
         raise
