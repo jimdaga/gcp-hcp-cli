@@ -277,6 +277,13 @@ class TestControllerStatusDisplay:
 
     def test_long_condition_names_not_truncated(self):
         """Test that long condition names are fully displayed."""
+        # Use variables for long condition type names to avoid line length issues
+        long_condition_1 = "ValidHostedControlPlaneConfiguration"
+        long_condition_2 = "ClusterVersionRetrievedUpdates"
+        conditions = [
+            {"type": long_condition_1, "status": "True"},
+            {"type": long_condition_2, "status": "False"},
+        ]
         controller_data = {
             "controller_status": [
                 {
@@ -285,18 +292,7 @@ class TestControllerStatusDisplay:
                         "resources": {
                             "hostedcluster": {
                                 "status": "Created",
-                                "resource_status": {
-                                    "conditions": [
-                                        {
-                                            "type": "ValidHostedControlPlaneConfiguration",
-                                            "status": "True",
-                                        },
-                                        {
-                                            "type": "ClusterVersionRetrievedUpdates",
-                                            "status": "False",
-                                        },
-                                    ]
-                                },
+                                "resource_status": {"conditions": conditions},
                             }
                         }
                     },
