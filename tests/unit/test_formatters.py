@@ -237,7 +237,15 @@ class TestControllerStatusDisplay:
         assert "ReconciliationSucceeded" in output
 
     def test_condition_status_values_displayed(self):
-        """Test that condition status values (True/False/Unknown) are displayed."""
+        """Test that condition status values and messages are displayed."""
+        # Use variables for messages to avoid line length issues
+        msg_available = "The hosted control plane is available"
+        msg_degraded = "The hosted cluster is not degraded"
+        conditions = [
+            {"type": "Available", "status": "True", "message": msg_available},
+            {"type": "Degraded", "status": "False", "message": msg_degraded},
+            {"type": "ExternalDNSReachable", "status": "Unknown"},
+        ]
         controller_data = {
             "controller_status": [
                 {
@@ -246,16 +254,7 @@ class TestControllerStatusDisplay:
                         "resources": {
                             "hostedcluster": {
                                 "status": "Created",
-                                "resource_status": {
-                                    "conditions": [
-                                        {"type": "Available", "status": "True"},
-                                        {"type": "Degraded", "status": "False"},
-                                        {
-                                            "type": "ExternalDNSReachable",
-                                            "status": "Unknown",
-                                        },
-                                    ]
-                                },
+                                "resource_status": {"conditions": conditions},
                             }
                         }
                     },
@@ -274,6 +273,13 @@ class TestControllerStatusDisplay:
         assert "True" in output
         assert "False" in output
         assert "Unknown" in output
+
+        # Verify messages are displayed (may be wrapped across lines by Rich)
+        # Check key parts of messages are present
+        assert "hosted control plane" in output
+        assert "hosted cluster" in output
+        # ExternalDNSReachable should still be shown without message
+        assert "ExternalDNSReachable" in output
 
     def test_long_condition_names_not_truncated(self):
         """Test that long condition names are fully displayed."""
