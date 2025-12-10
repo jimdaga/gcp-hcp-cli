@@ -3,7 +3,7 @@
 import base64
 import json
 from dataclasses import dataclass
-from typing import Dict, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
 import click
 from rich.panel import Panel
@@ -657,7 +657,7 @@ def cluster_status(
             cluster = api_client.get(f"/api/v1/clusters/{cluster_id}")
 
             # Fetch nodepools for this cluster
-            nodepools = []
+            nodepools: List[Dict[str, Any]] = []
             try:
                 nodepools_response = api_client.get(
                     "/api/v1/nodepools", params={"clusterId": cluster_id}

@@ -1,7 +1,7 @@
 """NodePool management commands for GCP HCP CLI."""
 
 import time
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, Union, TYPE_CHECKING
 
 import click
 from rich.panel import Panel
@@ -40,7 +40,7 @@ def resolve_nodepool_identifier(
             pass
 
     # Build search params
-    params = {"limit": 100}
+    params: Dict[str, Union[int, str]] = {"limit": 100}
     if cluster_id:
         params["clusterId"] = cluster_id
 
@@ -178,7 +178,7 @@ def list_nodepools(
         api_client = cli_context.get_api_client()
 
         # Build query parameters
-        params = {"limit": limit}
+        params: Dict[str, Union[int, str]] = {"limit": limit}
 
         # Resolve cluster identifier to UUID if provided
         if cluster:
@@ -362,7 +362,7 @@ def create_nodepool(
         parsed_taints = parse_taints(taints) if taints else []
 
         # Build nodepool spec
-        nodepool_data = {
+        nodepool_data: Dict[str, Any] = {
             "name": nodepool_name,
             "cluster_id": cluster_id,
             "spec": {
