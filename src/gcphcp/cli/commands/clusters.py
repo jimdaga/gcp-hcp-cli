@@ -656,6 +656,18 @@ def cluster_status(
         try:
             cluster = api_client.get(f"/api/v1/clusters/{cluster_id}")
 
+            # Fetch nodepools for this cluster
+            nodepools = []
+            try:
+                nodepools_response = api_client.get(
+                    "/api/v1/nodepools",
+                    params={"clusterId": cluster_id}
+                )
+                nodepools = nodepools_response.get("nodepools") or []
+            except APIError:
+                # Don't fail if nodepools fetch fails - just show empty list
+                pass
+
             # Fetch additional controller status if --all flag is used
             controller_status_data = None
             if all:
@@ -671,7 +683,7 @@ def cluster_status(
                         )
 
             if cli_context.output_format == "table":
-                cli_context.formatter.print_cluster_status(cluster, cluster_id)
+                cli_context.formatter.print_cluster_status(cluster, cluster_id, nodepools=nodepools)
 
                 # Display additional controller status in table format
                 if all and controller_status_data:
@@ -792,6 +804,28 @@ def cluster_status(
     help="API server endpoint access mode (default: Private)",
 )
 @click.option(
+    "--replicas",
+    type=int,
+    help="Number of compute nodes for default nodepool (if not specified, no nodepool created)",
+)
+@click.option(
+    "--node-machine-type",
+    default="n1-standard-4",
+    help="Machine type for default nodepool (default: n1-standard-4)",
+)
+@click.option(
+    "--node-disk-size",
+    type=int,
+    default=128,
+    help="Boot disk size in GB for default nodepool (default: 128)",
+)
+@click.option(
+    "--node-disk-type",
+    type=click.Choice(["pd-standard", "pd-ssd", "pd-balanced"], case_sensitive=False),
+    default="pd-standard",
+    help="Boot disk type for default nodepool (default: pd-standard)",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     help="Show what would be created without actually creating",
@@ -812,6 +846,10 @@ def create_cluster(
     network: str,
     subnet: str,
     endpoint_access: str,
+    replicas: Optional[int],
+    node_machine_type: str,
+    node_disk_size: int,
+    node_disk_type: str,
     dry_run: bool,
 ) -> None:
     """Create a new cluster.
@@ -1045,6 +1083,58 @@ def create_cluster(
         api_client = cli_context.get_api_client()
 
         cluster = api_client.post("/api/v1/clusters", json_data=cluster_data)
+        cluster_id = cluster.get("id")
+
+        # Create default nodepool if --replicas specified
+        if replicas:
+            try:
+                if not cli_context.quiet:
+                    cli_context.console.print()
+                    cli_context.console.print("[bold cyan]Creating Default NodePool[/bold cyan]")
+
+                # Generate nodepool name
+                nodepool_name = f"{cluster_name}-nodepool-1"
+
+                # Build nodepool spec
+                nodepool_data = {
+                    "name": nodepool_name,
+                    "cluster_id": cluster_id,
+                    "spec": {
+                        "replicas": replicas,
+                        "platform": {
+                            "type": "GCP",
+                            "gcp": {
+                                "instanceType": node_machine_type,
+                                "rootVolume": {
+                                    "size": node_disk_size,
+                                    "type": node_disk_type
+                                }
+                            }
+                        },
+                        "management": {
+                            "autoRepair": True,
+                            "upgradeType": "Replace"
+                        }
+                    }
+                }
+
+                nodepool = api_client.post("/api/v1/nodepools", json_data=nodepool_data)
+
+                if not cli_context.quiet:
+                    cli_context.console.print(
+                        f"[green]✓[/green] NodePool '{nodepool_name}' created with {replicas} replica(s)"
+                    )
+
+            except APIError as e:
+                # Don't fail cluster creation if nodepool creation fails
+                if not cli_context.quiet:
+                    cli_context.console.print(
+                        f"[yellow]Warning: Cluster created but nodepool creation failed: {e}[/yellow]"
+                    )
+                    cli_context.console.print(
+                        f"[dim]Create manually with:[/dim]\n"
+                        f"  gcphcp nodepools create {nodepool_name} --cluster {cluster_id} --replicas {replicas}"
+                    )
 
         if not cli_context.quiet:
             success_text = Text()

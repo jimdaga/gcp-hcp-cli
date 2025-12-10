@@ -48,14 +48,58 @@ class NodePoolManagement(BaseModel):
     )
 
 
+class GCPRootVolume(BaseModel):
+    """GCP root volume configuration."""
+
+    size: Optional[int] = Field(default=None, description="Disk size in GB")
+    type: Optional[str] = Field(default=None, description="Disk type")
+
+
+class GCPNodePoolPlatform(BaseModel):
+    """GCP-specific nodepool platform configuration."""
+
+    instanceType: Optional[str] = Field(default=None, description="GCP instance type")
+    rootVolume: Optional[GCPRootVolume] = Field(
+        default=None, description="Root volume config"
+    )
+    labels: Optional[Dict[str, str]] = Field(default=None, description="Node labels")
+    taints: Optional[List[Dict[str, Any]]] = Field(
+        default=None, description="Node taints"
+    )
+
+
+class NodePoolPlatform(BaseModel):
+    """Platform configuration for nodepool."""
+
+    type: str = Field(description="Platform type (e.g., GCP)")
+    gcp: Optional[GCPNodePoolPlatform] = Field(
+        default=None, description="GCP configuration"
+    )
+
+
 class NodePoolSpec(BaseModel):
     """Represents nodepool specification."""
 
     clusterId: str = Field(description="Parent cluster ID")
-    machineType: Optional[str] = Field(default=None, description="GCP machine type")
-    diskSize: Optional[int] = Field(default=None, description="Boot disk size in GB")
-    nodeCount: Optional[int] = Field(
+    replicas: Optional[int] = Field(
         default=None, description="Desired number of nodes"
+    )
+    platform: Optional[NodePoolPlatform] = Field(
+        default=None, description="Platform configuration"
+    )
+    management: Optional[NodePoolManagement] = Field(
+        default=None, description="Management configuration"
+    )
+
+    # Backward compatibility - keep old fields
+    machineType: Optional[str] = Field(
+        default=None, description="GCP machine type (deprecated - use platform.gcp.instanceType)"
+    )
+    diskSize: Optional[int] = Field(
+        default=None, description="Boot disk size in GB (deprecated - use platform.gcp.rootVolume.size)"
+    )
+    nodeCount: Optional[int] = Field(
+        default=None, description="Desired number of nodes (deprecated - use replicas)"
     )
     minNodeCount: Optional[int] = Field(
         default=None, description="Minimum number of nodes"
@@ -63,13 +107,52 @@ class NodePoolSpec(BaseModel):
     maxNodeCount: Optional[int] = Field(
         default=None, description="Maximum number of nodes"
     )
-    management: Optional[NodePoolManagement] = Field(
-        default=None, description="Management configuration"
-    )
     labels: Optional[Dict[str, str]] = Field(default=None, description="Node labels")
     taints: Optional[List[Dict[str, Any]]] = Field(
         default=None, description="Node taints"
     )
+
+    def get_replicas(self) -> Optional[int]:
+        """Get replicas count with backward compatibility.
+
+        Returns:
+            Replicas count from either replicas or nodeCount field
+        """
+        return self.replicas if self.replicas is not None else self.nodeCount
+
+    def get_machine_type(self) -> Optional[str]:
+        """Get machine type with backward compatibility.
+
+        Returns:
+            Machine type from platform.gcp.instanceType or machineType field
+        """
+        if self.platform and self.platform.gcp and self.platform.gcp.instanceType:
+            return self.platform.gcp.instanceType
+        return self.machineType
+
+    def get_disk_size(self) -> Optional[int]:
+        """Get disk size with backward compatibility.
+
+        Returns:
+            Disk size from platform.gcp.rootVolume.size or diskSize field
+        """
+        if (self.platform and self.platform.gcp and
+            self.platform.gcp.rootVolume and
+            self.platform.gcp.rootVolume.size):
+            return self.platform.gcp.rootVolume.size
+        return self.diskSize
+
+    def get_disk_type(self) -> Optional[str]:
+        """Get disk type from platform configuration.
+
+        Returns:
+            Disk type from platform.gcp.rootVolume.type
+        """
+        if (self.platform and self.platform.gcp and
+            self.platform.gcp.rootVolume and
+            self.platform.gcp.rootVolume.type):
+            return self.platform.gcp.rootVolume.type
+        return None
 
 
 class NodePool(BaseModel):
@@ -198,8 +281,22 @@ class NodePool(BaseModel):
         # Handle spec
         if "spec" in data and data["spec"]:
             spec_data = data["spec"]
+
+            # Handle management
             if "management" in spec_data and spec_data["management"]:
                 spec_data["management"] = NodePoolManagement(**spec_data["management"])
+
+            # Handle platform (nested structure)
+            if "platform" in spec_data and spec_data["platform"]:
+                platform_data = spec_data["platform"]
+                if "gcp" in platform_data and platform_data["gcp"]:
+                    gcp_data = platform_data["gcp"]
+                    # Handle rootVolume
+                    if "rootVolume" in gcp_data and gcp_data["rootVolume"]:
+                        gcp_data["rootVolume"] = GCPRootVolume(**gcp_data["rootVolume"])
+                    platform_data["gcp"] = GCPNodePoolPlatform(**gcp_data)
+                spec_data["platform"] = NodePoolPlatform(**platform_data)
+
             data["spec"] = NodePoolSpec(**spec_data)
 
         return cls(**data)

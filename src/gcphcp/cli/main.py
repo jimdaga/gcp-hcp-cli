@@ -13,7 +13,7 @@ from ..auth.google_auth import GoogleCloudAuth
 from ..client.api_client import APIClient
 from ..utils.config import Config
 from ..utils.formatters import OutputFormatter
-from .commands import auth, clusters, config as config_cmd, infra
+from .commands import auth, clusters, config as config_cmd, infra, nodepools
 
 # Global console for rich output
 console = Console()
@@ -223,6 +223,7 @@ cli.add_command(auth.auth_group)
 cli.add_command(clusters.clusters_group)
 cli.add_command(config_cmd.config_group)
 cli.add_command(infra.infra_group)
+cli.add_command(nodepools.nodepools_group)
 
 
 def main() -> None:
