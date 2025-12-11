@@ -19,22 +19,49 @@ class NodePoolCondition(BaseModel):
 
 
 class NodePoolStatus(BaseModel):
-    """Represents nodepool status information."""
+    """Nodepool status info (matches NodePoolStatusInfo from API spec)."""
 
-    phase: Optional[str] = Field(
-        default=None, description="Current phase of the nodepool"
+    observedGeneration: Optional[int] = Field(
+        default=None, description="Last generation processed by controllers"
     )
-    message: Optional[str] = Field(default=None, description="Status message")
-    generation: Optional[int] = Field(default=None, description="Generation number")
-    resourceVersion: Optional[str] = Field(default=None, description="Resource version")
     conditions: List[NodePoolCondition] = Field(
-        default_factory=list, description="NodePool conditions"
+        default_factory=list, description="Status conditions (Ready, Available)"
     )
+    phase: Optional[str] = Field(default=None, description="High-level nodepool phase")
+    message: Optional[str] = Field(
+        default=None, description="Human-readable status message"
+    )
+    reason: Optional[str] = Field(
+        default=None, description="Machine-readable reason code"
+    )
+    lastUpdateTime: Optional[datetime] = Field(
+        default=None, description="When status was last calculated"
+    )
+    # Extra fields not in API spec but useful for display
     nodeCount: Optional[int] = Field(
         default=None, description="Current number of nodes"
     )
     readyNodeCount: Optional[int] = Field(
         default=None, description="Number of ready nodes"
+    )
+
+
+class NodePoolControllerStatus(BaseModel):
+    """Represents individual controller status for a nodepool."""
+
+    nodepool_id: str = Field(description="NodePool UUID")
+    controller_name: str = Field(description="Controller name")
+    observed_generation: Optional[int] = Field(
+        default=None, description="Last generation processed by this controller"
+    )
+    conditions: List[NodePoolCondition] = Field(
+        default_factory=list, description="Controller-specific conditions"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None, description="Additional controller metadata"
+    )
+    last_updated: Optional[datetime] = Field(
+        default=None, description="When controller last updated status"
     )
 
 
@@ -292,6 +319,11 @@ class NodePool(BaseModel):
                         )
                     conditions.append(NodePoolCondition(**cond))
                 status_data["conditions"] = conditions
+            # Handle lastUpdateTime
+            if "lastUpdateTime" in status_data and status_data["lastUpdateTime"]:
+                status_data["lastUpdateTime"] = datetime.fromisoformat(
+                    status_data["lastUpdateTime"].replace("Z", "+00:00")
+                )
             data["status"] = NodePoolStatus(**status_data)
 
         # Handle spec

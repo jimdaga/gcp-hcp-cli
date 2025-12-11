@@ -431,10 +431,10 @@ def create_nodepool(
     help="Cluster identifier to narrow nodepool search (enables name-based lookup)",
 )
 @click.option(
-    "--detailed",
-    "-d",
+    "--all",
+    "-a",
     is_flag=True,
-    help="Show detailed status including all conditions and management configuration",
+    help="Show all controller status and detailed conditions",
 )
 @click.option(
     "--watch", "-w", is_flag=True, help="Watch for status changes in real-time"
@@ -450,7 +450,7 @@ def nodepool_status(
     cli_context: "CLIContext",
     nodepool_identifier: str,
     cluster: Optional[str],
-    detailed: bool,
+    all: bool,
     watch: bool,
     interval: int,
 ) -> None:
@@ -459,16 +459,15 @@ def nodepool_status(
     NODEPOOL_IDENTIFIER: NodePool partial ID (8+ chars), full UUID, or name
     (with --cluster).
 
-    Use --detailed/-d to show all conditions, transition times, and extended
-    management configuration.
+    Use --all/-a to show all controller status and detailed conditions.
 
     \b
     Examples:
         gcphcp nodepools status abc12345
-        gcphcp nodepools status abc12345 --detailed
+        gcphcp nodepools status abc12345 --all
         gcphcp nodepools status abc12345 --watch
         gcphcp nodepools status workers --cluster my-cluster \\
-            --watch --detailed
+            --watch --all
     """
     try:
         api_client = cli_context.get_api_client()
@@ -486,19 +485,33 @@ def nodepool_status(
                 api_client, nodepool_identifier, cluster_id=cluster_id
             )
 
-            # Fetch nodepool details
+            # Fetch nodepool status from the status endpoint
+            status_response = api_client.get(f"/api/v1/nodepools/{nodepool_id}/status")
+
+            # Extract nodepool basic data and status
             nodepool_data = api_client.get(f"/api/v1/nodepools/{nodepool_id}")
+            controller_status_data = status_response.get("controller_status", [])
 
             # Use formatter to display
             if cli_context.output_format == "table":
                 cli_context.formatter.print_nodepool_status(
-                    nodepool_data, nodepool_id, detailed=detailed
+                    nodepool_data, nodepool_id
                 )
+
+                # Display controller status if --all is used
+                if all:
+                    cli_context.formatter.print_nodepool_controller_status(
+                        controller_status_data, nodepool_id
+                    )
             else:
                 # For JSON/YAML, always include full data
-                cli_context.formatter.print_data(
-                    {"nodepool_id": nodepool_id, "nodepool": nodepool_data}
-                )
+                output_data = {
+                    "nodepool_id": nodepool_id,
+                    "status": status_response.get("status", {}),
+                }
+                if all:
+                    output_data["controller_status"] = controller_status_data
+                cli_context.formatter.print_data(output_data)
 
         if watch:
             if cli_context.output_format != "table":
