@@ -502,6 +502,302 @@ def clusters_group() -> None:
     pass
 
 
+@clusters_group.command("login")
+@click.argument("cluster_name")
+@click.option(
+    "--server",
+    help="API server URL (required if CLS Backend not configured)",
+)
+@click.option(
+    "--kubeconfig",
+    type=click.Path(),
+    envvar="KUBECONFIG",
+    help="Path to kubeconfig file (default: $KUBECONFIG or ~/.kube/config)",
+)
+@click.option(
+    "--namespace",
+    default="default",
+    help="Default namespace for the context",
+)
+@click.option(
+    "--insecure-skip-tls-verify/--no-insecure-skip-tls-verify",
+    default=True,
+    help="Skip TLS certificate verification (default: skip)",
+)
+@click.pass_obj
+def login(
+    cli_context: "CLIContext",
+    cluster_name: str,
+    server: str,
+    kubeconfig: str,
+    namespace: str,
+    insecure_skip_tls_verify: bool,
+) -> None:
+    """Login to a hosted cluster using Google credentials.
+
+    CLUSTER_NAME: Name of the cluster to login to.
+
+    This command authenticates you to a hosted cluster using your Google
+    identity. It will:
+
+    1. Get your Google ID token (from gcloud)
+    2. Validate it against the cluster API server
+    3. Update your kubeconfig with the credentials
+
+    If 'oc' CLI is available, it will be used for the login. Otherwise,
+    the kubeconfig will be updated directly.
+
+    Examples:
+
+      # Login using CLS Backend (if configured)
+      gcphcp clusters login my-cluster
+
+      # Login with explicit server URL
+      gcphcp clusters login my-cluster --server https://api.example.com:443
+
+      # Login to a specific kubeconfig file
+      gcphcp clusters login my-cluster --server https://api.example.com:443 \\
+        --kubeconfig ~/.kube/my-cluster-config
+    """
+    try:
+        # Step 1: Resolve API endpoint
+        endpoint = _resolve_cluster_endpoint(cli_context, cluster_name, server)
+
+        # Step 2: Get Google credentials
+        token = _get_google_credentials(cli_context)
+
+        # Step 3: Validate credentials against cluster
+        user_info = _validate_credentials(
+            cli_context, endpoint, token, insecure_skip_tls_verify
+        )
+
+        # Step 4: Perform login
+        context_name = _perform_login(
+            cli_context=cli_context,
+            cluster_name=cluster_name,
+            endpoint=endpoint,
+            token=token,
+            kubeconfig=kubeconfig,
+            namespace=namespace,
+            insecure_skip_tls_verify=insecure_skip_tls_verify,
+        )
+
+        # Step 5: Print success
+        _print_login_success(
+            cli_context, cluster_name, endpoint, user_info, context_name
+        )
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        cli_context.console.print(f"[red]Unexpected error: {e}[/red]")
+        raise click.ClickException(str(e))
+
+
+def _get_google_credentials(cli_context: "CLIContext") -> str:
+    """Step 2: Get Google ID token.
+
+    Returns:
+        Google ID token string
+
+    Raises:
+        click.ClickException: If token cannot be obtained
+    """
+    from ...utils.kubeconfig import KubeconfigError, get_google_id_token
+
+    if not cli_context.quiet:
+        cli_context.console.print("Getting Google credentials...")
+
+    try:
+        return get_google_id_token()
+    except KubeconfigError as e:
+        raise click.ClickException(str(e))
+
+
+def _validate_credentials(
+    cli_context: "CLIContext",
+    endpoint: str,
+    token: str,
+    insecure_skip_tls_verify: bool,
+) -> dict:
+    """Step 3: Validate token against cluster API server.
+
+    Returns:
+        User info dictionary with email and domain
+
+    Raises:
+        click.ClickException: If validation fails
+    """
+    from ...utils.kubeconfig import KubeconfigError, validate_token
+
+    if not cli_context.quiet:
+        cli_context.console.print(f"Authenticating to {endpoint}...")
+
+    try:
+        return validate_token(endpoint, token, insecure_skip_tls_verify)
+    except KubeconfigError as e:
+        raise click.ClickException(str(e))
+
+
+def _perform_login(
+    cli_context: "CLIContext",
+    cluster_name: str,
+    endpoint: str,
+    token: str,
+    kubeconfig: str,
+    namespace: str,
+    insecure_skip_tls_verify: bool,
+) -> str:
+    """Step 4: Perform login - use oc if available, otherwise direct kubeconfig.
+
+    Returns:
+        Context name that was set
+
+    Raises:
+        click.ClickException: If login fails
+    """
+    from ...utils.kubeconfig import (
+        KubeconfigError,
+        check_oc_installed,
+        login_with_oc,
+        update_kubeconfig,
+    )
+
+    if check_oc_installed(cli_context.config):
+        if not cli_context.quiet:
+            cli_context.console.print("[dim]Using oc CLI for login...[/dim]")
+        try:
+            login_with_oc(
+                server=endpoint,
+                token=token,
+                kubeconfig_path=kubeconfig,
+                insecure_skip_tls_verify=insecure_skip_tls_verify,
+                config=cli_context.config,
+            )
+            return cluster_name  # oc sets its own context name
+        except KubeconfigError as e:
+            raise click.ClickException(str(e))
+    else:
+        if not cli_context.quiet:
+            cli_context.console.print(
+                "[dim]oc not found, updating kubeconfig directly...[/dim]"
+            )
+        try:
+            return update_kubeconfig(
+                cluster_name=cluster_name,
+                server=endpoint,
+                token=token,
+                namespace=namespace,
+                kubeconfig_path=kubeconfig,
+                insecure_skip_tls_verify=insecure_skip_tls_verify,
+            )
+        except KubeconfigError as e:
+            raise click.ClickException(str(e))
+
+
+def _print_login_success(
+    cli_context: "CLIContext",
+    cluster_name: str,
+    endpoint: str,
+    user_info: dict,
+    context_name: str,
+) -> None:
+    """Step 5: Print success message."""
+    if cli_context.quiet:
+        return
+
+    cli_context.console.print()
+    cli_context.console.print(
+        f"[green]✓[/green] Logged into [cyan]{cluster_name}[/cyan]"
+    )
+    cli_context.console.print(f"  Server: {endpoint}")
+    cli_context.console.print(f"  User: {user_info.get('email', 'unknown')}")
+    if user_info.get("hd"):
+        cli_context.console.print(f"  Domain: {user_info['hd']}")
+    cli_context.console.print(f"  Context: {context_name}")
+    cli_context.console.print()
+    cli_context.console.print("[dim]You can now use kubectl/oc commands.[/dim]")
+
+
+def _resolve_cluster_endpoint(
+    cli_context: "CLIContext",
+    cluster_name: str,
+    server: str,
+) -> str:
+    """Resolve the API server endpoint for a cluster.
+
+    Priority:
+    1. Explicit --server flag
+    2. CLS Backend API (if configured)
+    3. Error with usage message
+
+    Args:
+        cli_context: CLI context
+        cluster_name: Name of the cluster
+        server: Explicit server URL (may be None)
+
+    Returns:
+        API server endpoint URL
+
+    Raises:
+        click.ClickException: If endpoint cannot be resolved
+    """
+    # Option 1: Explicit server flag
+    if server:
+        return server
+
+    # Option 2: Try CLS Backend API (if configured)
+    api_url = cli_context.config.get("api_endpoint")
+    if api_url:
+        try:
+            api_client = cli_context.get_api_client()
+            cluster_id = resolve_cluster_identifier(api_client, cluster_name)
+
+            # Get cluster status to find the API endpoint
+            status_data = api_client.get(f"/api/v1/clusters/{cluster_id}/status")
+
+            # Look for APIServer condition in controller status
+            controller_statuses = status_data.get("controller_status", [])
+            for controller in controller_statuses:
+                conditions = controller.get("conditions", [])
+                for condition in conditions:
+                    if condition.get("type") == "APIServer":
+                        message = condition.get("message", "")
+                        # The message contains the API endpoint URL
+                        if message.startswith("https://"):
+                            if not cli_context.quiet:
+                                cli_context.console.print(
+                                    "[dim]Resolved endpoint from CLS Backend[/dim]"
+                                )
+                            return message
+
+            # Fallback: check if there's an api_endpoint field in cluster data
+            cluster = api_client.get(f"/api/v1/clusters/{cluster_id}")
+            if cluster.get("api_endpoint"):
+                return cluster["api_endpoint"]
+
+        except (APIError, ResourceNotFoundError) as e:
+            # Fall through to error with more context
+            raise click.ClickException(
+                f"Failed to resolve endpoint for cluster '{cluster_name}' "
+                f"from CLS Backend: {e}\n\n"
+                "Please specify the server URL manually:\n"
+                f"  gcphcp clusters login {cluster_name} --server <API_URL>"
+            )
+        except Exception:
+            # Fall through to error
+            pass
+
+    # Option 3: Error with usage
+    raise click.ClickException(
+        f"Cannot determine API endpoint for cluster '{cluster_name}'.\n\n"
+        "Please specify the server URL:\n"
+        f"  gcphcp clusters login {cluster_name} --server <API_URL>\n\n"
+        "Or configure the CLS Backend API:\n"
+        "  gcphcp config set api_endpoint <CLS_BACKEND_URL>"
+    )
+
+
 @clusters_group.command("list")
 @click.option(
     "--limit",

@@ -178,3 +178,11 @@ class Config:
             Path to hypershift binary or None if not configured
         """
         return self.get("hypershift_binary")
+
+    def get_oc_binary(self) -> Optional[str]:
+        """Get path to oc binary.
+
+        Returns:
+            Path to oc binary or None if not configured
+        """
+        return self.get("oc_binary")
