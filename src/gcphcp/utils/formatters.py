@@ -603,12 +603,22 @@ class OutputFormatter:
                     condition_status = condition.get("status", "Unknown")
                     condition_message = condition.get("message", "")
 
-                    # Color code the status
-                    status_color = {
-                        "True": "green",
-                        "False": "red",
-                        "Unknown": "yellow",
-                    }.get(condition_status, "white")
+                    # Color code based on status and condition type
+                    # For "negative" conditions, True is bad, False is good
+                    negative_conditions = ["Degraded", "Progressing"]
+                    if condition_type in negative_conditions:
+                        status_color = {
+                            "True": "red",
+                            "False": "green",
+                            "Unknown": "yellow",
+                        }.get(condition_status, "white")
+                    else:
+                        # For "positive" conditions, True is good, False is bad
+                        status_color = {
+                            "True": "green",
+                            "False": "red",
+                            "Unknown": "yellow",
+                        }.get(condition_status, "white")
 
                     status_text = f"[{status_color}]{condition_status}[/{status_color}]"
                     if condition_message:
@@ -619,12 +629,85 @@ class OutputFormatter:
 
                     table.add_row(f"    {condition_type}", status_text)
 
-            # Metadata if available
+            # Resource details from metadata
             metadata = controller.get("metadata", {})
+            resources = metadata.get("resources", {})
+            if resources:
+                table.add_row("  Resources", "")
+                for resource_type, resource_data in resources.items():
+                    resource_status = resource_data.get("status", "Unknown")
+                    status_color = {
+                        "Created": "green",
+                        "Ready": "green",
+                        "Available": "green",
+                        "Failed": "red",
+                        "Pending": "yellow",
+                    }.get(resource_status, "white")
+
+                    table.add_row(
+                        f"    {resource_type.title()}",
+                        f"[{status_color}]{resource_status}[/{status_color}]",
+                    )
+
+                    # Show conditions for any resource that has them
+                    resource_status_data = resource_data.get("resource_status", {})
+                    conditions = resource_status_data.get("conditions", [])
+
+                    if conditions:
+                        # Display all conditions with type, status, and message
+                        for condition in conditions:
+                            condition_type = condition.get("type", "Unknown")
+                            condition_status = condition.get("status", "Unknown")
+                            condition_message = condition.get("message", "")
+
+                            # Color code based on status and condition type
+                            # For "negative" conditions (Degraded, Progressing,
+                            # UpdatingVersion, UpdatingConfig,
+                            # UpdatingPlatformMachineTemplate),
+                            # True is bad, False is good
+                            negative_conditions = [
+                                "Degraded",
+                                "Progressing",
+                                "UpdatingVersion",
+                                "UpdatingConfig",
+                                "UpdatingPlatformMachineTemplate",
+                            ]
+                            if condition_type in negative_conditions:
+                                status_color = {
+                                    "True": "red",
+                                    "False": "green",
+                                    "Unknown": "yellow",
+                                }.get(condition_status, "white")
+                            else:
+                                # For "positive" conditions, True is good, False is bad
+                                status_color = {
+                                    "True": "green",
+                                    "False": "red",
+                                    "Unknown": "yellow",
+                                }.get(condition_status, "white")
+
+                            display_text = (
+                                f"[{status_color}]{condition_status}"
+                                f"[/{status_color}]"
+                            )
+                            if condition_message:
+                                # Truncate long messages
+                                if len(condition_message) > 80:
+                                    condition_message = condition_message[:77] + "..."
+                                display_text += f" - {condition_message}"
+
+                            table.add_row(f"      {condition_type}", display_text)
+
+            # Other metadata (non-resources)
             if metadata:
-                table.add_row("  Metadata", "")
-                for key, value in metadata.items():
-                    if isinstance(value, (str, int, float, bool)):
+                other_metadata = {
+                    k: v
+                    for k, v in metadata.items()
+                    if k != "resources" and isinstance(v, (str, int, float, bool))
+                }
+                if other_metadata:
+                    table.add_row("  Other Metadata", "")
+                    for key, value in other_metadata.items():
                         table.add_row(f"    {key}", str(value))
 
         self.console.print(table)
@@ -719,21 +802,21 @@ class OutputFormatter:
                         f"[{status_color}]{resource_status}[/{status_color}]",
                     )
 
-                    # Show all hosted cluster conditions
-                    if resource_type == "hostedcluster":
-                        hc_status = resource_data.get("resource_status", {})
-                        hc_conditions = hc_status.get("conditions", [])
+                    # Show conditions for any resource that has them
+                    resource_status_data = resource_data.get("resource_status", {})
+                    conditions = resource_status_data.get("conditions", [])
 
+                    if conditions:
                         # Display all conditions with type, status, and message
-                        for condition in hc_conditions:
+                        for condition in conditions:
                             condition_type = condition.get("type", "Unknown")
                             condition_status = condition.get("status", "Unknown")
                             condition_message = condition.get("message", "")
 
                             # Color code based on status and condition type
-                            # For "negative" conditions (Degraded, Progressing),
-                            # True is bad, False is good
-                            negative_conditions = ["Degraded", "Progressing"]
+                            # For "negative" conditions (Degraded, Progressing,
+                            # Issuing), True is bad, False is good
+                            negative_conditions = ["Degraded", "Progressing", "Issuing"]
                             if condition_type in negative_conditions:
                                 status_color = {
                                     "True": "red",
