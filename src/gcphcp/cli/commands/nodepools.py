@@ -596,7 +596,7 @@ def scale_nodepool(
 
         # Fetch current nodepool to get the current spec
         nodepool_data = api_client.get(f"/api/v1/nodepools/{nodepool_id}")
-        nodepool_name = nodepool_data.get("name", nodepool_id)
+        nodepool_name = nodepool_data.get("name") or nodepool_id
         current_spec = nodepool_data.get("spec", {})
         current_replicas = current_spec.get("replicas") or current_spec.get(
             "nodeCount", 0
@@ -696,7 +696,7 @@ def delete_nodepool(
 
         # Fetch nodepool details for confirmation
         nodepool_data = api_client.get(f"/api/v1/nodepools/{nodepool_id}")
-        nodepool_name = nodepool_data.get("name", nodepool_id)
+        nodepool_name = nodepool_data.get("name") or nodepool_id
 
         # Get node info for confirmation message
         spec = nodepool_data.get("spec", {})
