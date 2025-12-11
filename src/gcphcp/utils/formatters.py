@@ -344,39 +344,43 @@ class OutputFormatter:
             table.add_row(f"  {nodepool.name}", "")
 
             # Get Available and Ready conditions
-            available_status = "Unknown"
-            ready_status = "Unknown"
+            available_condition = None
+            ready_condition = None
             if nodepool.status and nodepool.status.conditions:
                 for cond in nodepool.status.conditions:
                     if cond.type == "Available":
-                        available_status = cond.status
+                        available_condition = cond
                     elif cond.type == "Ready":
-                        ready_status = cond.status
+                        ready_condition = cond
 
-            # Color code the conditions
-            available_color = {
-                "True": "green",
-                "False": "red",
-                "Unknown": "yellow",
-            }.get(available_status, "white")
+            # Display Ready condition
+            if ready_condition:
+                ready_color = {
+                    "True": "green",
+                    "False": "red",
+                    "Unknown": "yellow",
+                }.get(ready_condition.status, "white")
 
-            ready_color = {
-                "True": "green",
-                "False": "red",
-                "Unknown": "yellow",
-            }.get(ready_status, "white")
+                ready_text = f"[{ready_color}]{ready_condition.status}[/{ready_color}]"
+                if ready_condition.message:
+                    ready_text += f" - {ready_condition.message}"
+                table.add_row("    Ready", ready_text)
 
-            # Add status rows
-            table.add_row(
-                "    Available",
-                f"[{available_color}]{available_status}[/{available_color}]",
-            )
-            table.add_row(
-                "    Ready",
-                f"[{ready_color}]{ready_status}[/{ready_color}]",
-            )
-            table.add_row("    Nodes", nodepool.get_node_info())
-            table.add_row("    Age", nodepool.get_age())
+            # Display Available condition
+            if available_condition:
+                available_color = {
+                    "True": "green",
+                    "False": "red",
+                    "Unknown": "yellow",
+                }.get(available_condition.status, "white")
+
+                available_text = (
+                    f"[{available_color}]{available_condition.status}"
+                    f"[/{available_color}]"
+                )
+                if available_condition.message:
+                    available_text += f" - {available_condition.message}"
+                table.add_row("    Available", available_text)
 
         self.console.print(table)
 

@@ -224,7 +224,6 @@ def list_nodepools(
 
         table.add_column("ID", style="dim")
         table.add_column("STATUS", style="white")
-        table.add_column("NODES", style="white")
         table.add_column("AGE", style="dim")
 
         for np_data in nodepools_data:
@@ -255,7 +254,6 @@ def list_nodepools(
                     nodepool.name,
                     short_id,
                     f"[{status_color}]{status}[/{status_color}]",
-                    nodepool.get_node_info(),
                     nodepool.get_age(),
                 )
             else:
@@ -264,7 +262,6 @@ def list_nodepools(
                     cluster_short_id,
                     short_id,
                     f"[{status_color}]{status}[/{status_color}]",
-                    nodepool.get_node_info(),
                     nodepool.get_age(),
                 )
 
