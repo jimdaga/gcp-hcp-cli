@@ -382,9 +382,6 @@ class OutputFormatter:
                     available_text += f" - {available_condition.message}"
                 table.add_row("    Available", available_text)
 
-            # Age
-            table.add_row("    Age", nodepool.get_age())
-
         self.console.print(table)
 
     def print_nodepool_status(
