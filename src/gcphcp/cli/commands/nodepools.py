@@ -494,9 +494,7 @@ def nodepool_status(
 
             # Use formatter to display
             if cli_context.output_format == "table":
-                cli_context.formatter.print_nodepool_status(
-                    nodepool_data, nodepool_id
-                )
+                cli_context.formatter.print_nodepool_status(nodepool_data, nodepool_id)
 
                 # Display controller status if --all is used
                 if all:
