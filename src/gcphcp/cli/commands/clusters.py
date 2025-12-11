@@ -801,8 +801,8 @@ def cluster_status(
 @click.option(
     "--endpoint-access",
     type=click.Choice(["Private", "PublicAndPrivate"], case_sensitive=True),
-    default="Private",
-    help="API server endpoint access mode (default: Private)",
+    default="PublicAndPrivate",
+    help="API server endpoint access mode (default: PublicAndPrivate)",
 )
 @click.option(
     "--replicas",
