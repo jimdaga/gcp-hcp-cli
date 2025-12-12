@@ -5,9 +5,11 @@ import json
 import os
 import shutil
 import subprocess
+import warnings
 from typing import Dict, Any, Optional, Tuple
 
 import requests
+import urllib3
 import yaml
 
 
@@ -144,12 +146,18 @@ def validate_token(
         KubeconfigError: If validation fails
     """
     try:
-        response = requests.get(
-            f"{server}/api",
-            headers={"Authorization": f"Bearer {token}"},
-            verify=not insecure_skip_tls_verify,
-            timeout=10,
-        )
+        # Suppress InsecureRequestWarning when TLS verification is disabled
+        with warnings.catch_warnings():
+            if insecure_skip_tls_verify:
+                warnings.filterwarnings(
+                    "ignore", category=urllib3.exceptions.InsecureRequestWarning
+                )
+            response = requests.get(
+                f"{server}/api",
+                headers={"Authorization": f"Bearer {token}"},
+                verify=not insecure_skip_tls_verify,
+                timeout=10,
+            )
 
         if response.status_code == 401:
             raise KubeconfigError("Authentication failed: Invalid or expired token")
