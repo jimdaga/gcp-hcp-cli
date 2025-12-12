@@ -238,6 +238,23 @@ client_secrets_path: ~/.gcphcp/client_secrets.json
 | `credentials_path` | Path to stored credentials | `~/.gcphcp/credentials.json` |
 | `client_secrets_path` | Path to OAuth client secrets | None |
 
+### Environment Variables
+
+The CLI supports the following environment variables:
+
+| Variable | Description | Priority |
+|----------|-------------|----------|
+| `GCPHCP_CONFIG_PATH` | Path to configuration file | CLI flag > env var > default |
+| `GCPHCP_API_ENDPOINT` | API endpoint URL | CLI flag > env var > config file > default |
+
+**Example:**
+
+```bash
+export GCPHCP_CONFIG_PATH=/path/to/custom/config.yaml
+export GCPHCP_API_ENDPOINT=https://my-api.example.com
+gcphcp clusters list
+```
+
 ## Authentication
 
 The CLI uses Google Cloud Platform OAuth 2.0 authentication with the following scopes:

@@ -1,6 +1,7 @@
 """Main CLI entry point for GCP HCP CLI."""
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -127,18 +128,29 @@ def create_cli_context(
     Returns:
         Configured CLI context
     """
-    # Load configuration
-    config = Config(config_path or DEFAULT_CONFIG_PATH)
+    # Determine config path: CLI flag > env var > default
+    if not config_path:
+        env_config = os.environ.get("GCPHCP_CONFIG_PATH")
+        if env_config:
+            config_path = Path(env_config)
+        else:
+            config_path = DEFAULT_CONFIG_PATH
 
-    # Override configuration with command line options
+    # Load configuration
+    config = Config(config_path)
+
+    # Override configuration: CLI flag > env var > config file > default
     if api_endpoint:
         config.set("api_endpoint", api_endpoint)
+    elif not config.get("api_endpoint"):
+        env_api_endpoint = os.environ.get("GCPHCP_API_ENDPOINT")
+        if env_api_endpoint:
+            config.set("api_endpoint", env_api_endpoint)
+        else:
+            config.set("api_endpoint", DEFAULT_API_ENDPOINT)
+
     if project:
         config.set("default_project", project)
-
-    # Set defaults if not configured
-    if not config.get("api_endpoint"):
-        config.set("api_endpoint", DEFAULT_API_ENDPOINT)
 
     return CLIContext(
         config=config,
