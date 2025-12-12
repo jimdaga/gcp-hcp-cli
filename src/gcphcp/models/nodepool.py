@@ -297,12 +297,20 @@ class NodePool(BaseModel):
         Returns:
             NodePool instance
         """
-        # Handle datetime fields
-        if "createdAt" in data and data["createdAt"]:
+        # Handle datetime fields (API returns snake_case, model uses camelCase)
+        if "created_at" in data and data["created_at"]:
+            data["createdAt"] = datetime.fromisoformat(
+                data["created_at"].replace("Z", "+00:00")
+            )
+        elif "createdAt" in data and data["createdAt"]:
             data["createdAt"] = datetime.fromisoformat(
                 data["createdAt"].replace("Z", "+00:00")
             )
-        if "updatedAt" in data and data["updatedAt"]:
+        if "updated_at" in data and data["updated_at"]:
+            data["updatedAt"] = datetime.fromisoformat(
+                data["updated_at"].replace("Z", "+00:00")
+            )
+        elif "updatedAt" in data and data["updatedAt"]:
             data["updatedAt"] = datetime.fromisoformat(
                 data["updatedAt"].replace("Z", "+00:00")
             )

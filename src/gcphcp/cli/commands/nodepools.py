@@ -5,7 +5,6 @@ from typing import Any, Dict, Optional, Union, TYPE_CHECKING
 
 import click
 from rich.panel import Panel
-from rich.table import Table
 
 from ...client.exceptions import APIError, ResourceNotFoundError, ValidationError
 from ...models.nodepool import NodePool
@@ -50,9 +49,36 @@ def resolve_nodepool_identifier(
         nodepools = response.get("nodepools") or []
 
         # Try exact name match first
+        name_matches = []
         for nodepool in nodepools:
             if nodepool.get("name") == identifier:
-                return nodepool.get("id")
+                name_matches.append(
+                    (
+                        nodepool.get("id"),
+                        nodepool.get("name"),
+                        nodepool.get("cluster_id") or nodepool.get("clusterId"),
+                    )
+                )
+
+        if len(name_matches) == 1:
+            return name_matches[0][0]  # Return the ID
+        elif len(name_matches) > 1:
+            # Multiple nodepools with same name across clusters
+            match_list = "\n".join(
+                [
+                    f"  NodePool ID: {id}\n    Cluster ID: {cluster_id}"
+                    for id, name, cluster_id in name_matches
+                ]
+            )
+            raise click.ClickException(
+                f"Multiple nodepools named '{identifier}' found across "
+                f"different clusters:\n\n{match_list}\n\n"
+                "Please specify which nodepool using one of:\n"
+                f"  - Full or partial nodepool ID: "
+                f"gcphcp nodepools <command> {name_matches[0][0][:8]}\n"
+                f"  - Nodepool name with --cluster flag: "
+                f"gcphcp nodepools <command> {identifier} --cluster <cluster-name>"
+            )
 
         # Try partial ID match (case-insensitive, minimum 8 chars)
         if len(identifier) >= 8:
@@ -213,59 +239,63 @@ def list_nodepools(
             cli_context.formatter.print_data({"nodepools": nodepools_data})
             return
 
-        # Create table with appropriate title
-        table_title = f"NodePools for cluster {cluster}" if cluster else "All NodePools"
-        table = Table(title=table_title, show_header=True)
-        table.add_column("NAME", style="cyan")
+        # Collect unique cluster IDs to fetch cluster information
+        unique_cluster_ids = set()
+        for np_data in nodepools_data:
+            cluster_id = np_data.get("cluster_id") or np_data.get("clusterId")
+            if cluster_id:
+                unique_cluster_ids.add(cluster_id)
 
-        # Add CLUSTER column when listing all nodepools
-        if not cluster:
-            table.add_column("CLUSTER", style="blue")
+        # Fetch cluster information for all unique cluster IDs
+        cluster_info_map = {}
+        for cluster_id in unique_cluster_ids:
+            try:
+                cluster_data = api_client.get(f"/api/v1/clusters/{cluster_id}")
+                cluster_info_map[cluster_id] = {
+                    "name": cluster_data.get("name", ""),
+                    "project": cluster_data.get("target_project_id")
+                    or cluster_data.get("targetProjectId")
+                    or "",
+                }
+            except Exception:
+                # If we can't fetch cluster info, use defaults
+                cluster_info_map[cluster_id] = {
+                    "name": cluster_id[:8],
+                    "project": "",
+                }
 
-        table.add_column("ID", style="dim")
-        table.add_column("STATUS", style="white")
-        table.add_column("AGE", style="dim")
-
+        # Prepare table data
+        table_data = []
         for np_data in nodepools_data:
             nodepool = NodePool.from_api_response(np_data)
 
-            # Status with color
-            status = nodepool.get_display_status()
-            status_color = {
-                "Ready": "green",
-                "Progressing": "yellow",
-                "Pending": "blue",
-                "Failed": "red",
-            }.get(status, "white")
-
-            # ID (show first 8 chars)
-            short_id = nodepool.id[:8] if len(nodepool.id) > 8 else nodepool.id
-
-            # Cluster ID (show first 8 chars)
-            cluster_short_id = (
-                nodepool.clusterId[:8]
-                if len(nodepool.clusterId) > 8
-                else nodepool.clusterId
+            # Get cluster info
+            cluster_info = cluster_info_map.get(
+                nodepool.clusterId, {"name": "", "project": ""}
             )
 
-            # Build row based on whether cluster filter is applied
-            if cluster:
-                table.add_row(
-                    nodepool.name,
-                    short_id,
-                    f"[{status_color}]{status}[/{status_color}]",
-                    nodepool.get_age(),
-                )
-            else:
-                table.add_row(
-                    nodepool.name,
-                    cluster_short_id,
-                    short_id,
-                    f"[{status_color}]{status}[/{status_color}]",
-                    nodepool.get_age(),
-                )
+            table_data.append(
+                {
+                    "NAME": nodepool.name,
+                    "ID": nodepool.id,
+                    "STATUS": nodepool.get_display_status(),
+                    "CLUSTER": cluster_info["name"],
+                    "PROJECT": cluster_info["project"],
+                    "CREATED": cli_context.formatter.format_datetime(
+                        nodepool.createdAt.isoformat() if nodepool.createdAt else None
+                    ),
+                }
+            )
 
-        cli_context.console.print(table)
+        # Create table title
+        table_title = f"NodePools for cluster {cluster}" if cluster else "All NodePools"
+
+        # Print table using formatter
+        cli_context.formatter.print_table(
+            data=table_data,
+            title=table_title,
+            columns=["NAME", "ID", "STATUS", "CLUSTER", "PROJECT", "CREATED"],
+        )
 
     except click.ClickException:
         raise
